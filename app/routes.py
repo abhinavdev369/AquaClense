@@ -14,6 +14,7 @@ import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
 import random
+from datetime import date
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 # Logging setup
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -119,7 +120,12 @@ def admin_required(f):
       
 # Routes for the app
 def init_routes(app):
-    @app.route('/', methods=['GET', 'POST'])
+    @app.route('/', methods=['GET'])
+    def home():
+        return render_template('first.html')  # New landing page
+
+    # Moved Login Route to /login
+    @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':
             username = request.form['username']
@@ -211,39 +217,43 @@ def init_routes(app):
         today = datetime.now().strftime("%Y-%m-%d")
         return render_template('dashboard.html', today=today)
 
-    @app.route('/upload_waste_images', methods=['POST'])
+    @app.route('/upload_waste_images', methods=['GET', 'POST'])
     @login_required
     def upload_waste_images():
-        if 'images' not in request.files or not request.form.get('date') or not request.form.get('canal'):
-            flash("Please provide date, canal, and at least one image!")
-            return redirect(url_for('dashboard'))
-        
-        date_str = request.form['date']
-        canal_name = request.form['canal']
-        uploaded_files = request.files.getlist("images")
-        
-        if not uploaded_files or all(f.filename == '' for f in uploaded_files):
-            flash("No images uploaded!")
-            return redirect(url_for('dashboard'))
+        if request.method == 'POST':
+            if 'images' not in request.files or not request.form.get('date') or not request.form.get('canal'):
+                flash("Please provide date, canal, and at least one image!")
+                return redirect(url_for('upload_waste_images'))
 
-        waste_counts = {"plastic": 0, "metal": 0, "biomedical": 0, "shoes": 0}
-        for file in uploaded_files:
-            if file.filename != '':
-                image = Image.open(file.stream).resize((224, 224))
-                image_array = np.array(image) / 255.0
-                image_array = np.expand_dims(image_array, axis=0)
-                prediction = cnn_model.predict(image_array)[0]
-                for i, prob in enumerate(prediction):
-                    if prob > 0.5:
-                        waste_counts[waste_types[i]] += 1
+            date_str = request.form['date']
+            canal_name = request.form['canal']
+            uploaded_files = request.files.getlist("images")
+            
+            if not uploaded_files or all(f.filename == '' for f in uploaded_files):
+                flash("No images uploaded!")
+                return redirect(url_for('upload_waste_images'))
 
-        canal_data_collection.update_one(
-            {"date": date_str, "canal": canal_name},
-            {"$set": {"waste_counts": waste_counts}},
-            upsert=True
-        )
-        flash(f"Waste images for {canal_name} on {date_str} uploaded and classified successfully!")
-        return redirect(url_for('dashboard'))
+            waste_counts = {"plastic": 0, "metal": 0, "biomedical": 0, "shoes": 0}
+            for file in uploaded_files:
+                if file.filename != '':
+                    image = Image.open(file.stream).resize((224, 224))
+                    image_array = np.array(image) / 255.0
+                    image_array = np.expand_dims(image_array, axis=0)
+                    prediction = cnn_model.predict(image_array)[0]
+                    for i, prob in enumerate(prediction):
+                        if prob > 0.5:
+                            waste_counts[waste_types[i]] += 1
+
+            canal_data_collection.update_one(
+                {"date": date_str, "canal": canal_name},
+                {"$set": {"waste_counts": waste_counts}},
+                upsert=True
+            )
+
+            flash(f"Waste images for {canal_name} on {date_str} uploaded and classified successfully!")
+            return redirect(url_for('dashboard'))
+    # On GET request → show upload page
+        return render_template('upload_waste.html', today=date.today().isoformat())
 
     @app.route('/product1', methods=['GET', 'POST'])
     def product1():
